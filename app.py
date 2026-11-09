@@ -1,139 +1,129 @@
-import tempfile
 import cv2
-import streamlit as st
 from ultralytics import YOLO
 
-# Page Configuration
-st.set_page_config(
-    page_title="Smart Person Counter AI", page_icon="👥", layout="wide"
-)
-
-# App Title & Styling
-st.title("👥 Smart Human Counting & Tracking System (YOLOv8)")
-st.markdown(
-    "Google Antigravity environment par mabni YOLOv8 aur Streamlit ka Person"
-    " Counter app."
-)
-
-# Sidebar Settings
-st.sidebar.header("⚙️ Configuration")
-confidence = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.4, 0.05)
+# YOLOv8 ka lightweight model load karein (yolov8n.pt sab se fast hai)
+model = YOLO("yolov8n.pt")
 
 
-# Load YOLOv8 Model
-@st.cache_resource
-def load_model():
-  model = YOLO("yolov8n.pt")
-  return model
+def detect_image(image_path):
+  # 1. Image read karein
+  image = cv2.imread(image_path)
+  if image is None:
+    print(
+        "❌ Image load nahi ho saki! Barah-e-karam sahi path ya file name dein."
+    )
+    return
+
+  print("🔄 Image processing ho rahi hai...")
+
+  # 2. YOLOv8 inference run karein (Sirf class 0 yani 'person' ke liye)
+  results = model(image, classes=[0], verbose=False)
+
+  # 3. Total persons count nikalein
+  person_count = len(results[0].boxes)
+
+  # 4. Bounding boxes draw karein
+  annotated_image = results[0].plot()
+
+  # 5. Count text display karein
+  cv2.putText(
+      annotated_image,
+      f"Total Persons: {person_count}",
+      (30, 50),
+      cv2.FONT_HERSHEY_SIMPLEX,
+      1,
+      (0, 255, 0),
+      2,
+      cv2.LINE_AA,
+  )
+
+  # 6. Image window show karein
+  print(f"✅ Success! Detected Persons: {person_count}")
+  cv2.imshow("Image Person Detection", annotated_image)
+  print("💡 Window band karne ke liye keyboard ki koi bhi key press karein...")
+  cv2.waitKey(0)
+  cv2.destroyAllWindows()
 
 
-try:
-  model = load_model()
-  st.sidebar.success("YOLOv8 Model loaded successfully! ✅")
-except Exception as e:
-  st.sidebar.error(f"Model load nahi ho saka: {e}")
+def detect_live_camera():
+  # 1. Webcam open karein (0 default laptop webcam ke liye hai)
+  cap = cv2.VideoCapture(0)
 
-# Video Uploader Component
-uploaded_file = st.file_uploader(
-    "Apni video file yahan upload karein...", type=["mp4", "avi", "mov"]
-)
+  if not cap.isOpened():
+    print("❌ Webcam open nahi ho saka!")
+    return
 
-if uploaded_file is not None:
-  # Temporary file create karna taake OpenCV read kar sakay
-  tfile = tempfile.NamedTemporaryFile(delete=False)
-  tfile.write(uploaded_file.read())
-  video_path = tfile.name
+  print(
+      "🔴 Live Camera start ho gaya hai! Band karne ke liye keyboard se 'q'"
+      " press karein."
+  )
 
-  # Layout: Two columns
-  col1, col2 = st.columns(2)
+  while cap.isOpened():
+    success, frame = cap.read()
+    if not success:
+      print("❌ Frame read nahi ho saka.")
+      break
 
-  with col1:
-    st.subheader("🎬 Original Video")
-    st.video(uploaded_file)
+    # 2. Live camera par tracking run karein (class 0 = person)
+    results = model.track(
+        frame,
+        persist=True,
+        tracker="bytetrack.yaml",
+        classes=[0],
+        verbose=False,
+    )
 
-  with col2:
-    st.subheader("📊 Live AI Detection & Count")
-    st_frame = st.empty()
-    metric_placeholder = st.empty()
+    # Unique tracked persons count
+    if results[0].boxes.id is not None:
+      person_count = len(results[0].boxes.id)
+    else:
+      person_count = 0
 
-  if st.button("🚀 Start Counting & Tracking"):
-    cap = cv2.VideoCapture(video_path)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    # 3. Bounding boxes draw karein
+    annotated_frame = results[0].plot()
 
-    # Output video writer setup
-    out_path = "output_tracked.mp4"
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
+    # 4. Live count screen par display karein
+    cv2.putText(
+        annotated_frame,
+        f"Live Persons Count: {person_count}",
+        (30, 50),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (0, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
-    progress_bar = st.progress(0)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_count = 0
+    # 5. Frame show karein
+    cv2.imshow("Live Camera Person Detection & Tracking", annotated_frame)
 
-    while cap.isOpened():
-      ret, frame = cap.read()
-      if not ret:
-        break
+    # 'q' press karne par live camera band ho jaye ga
+    if cv2.waitKey(1) & 0xFF == ord("q"):
+      break
 
-      frame_count += 1
+  cap.release()
+  cv2.destroyAllWindows()
 
-      # YOLOv8 Tracking execution (Sirf class 0 yani 'person' ko filter karne ke liye)
-      results = model.track(
-          frame,
-          persist=True,
-          tracker="bytetrack.yaml",
-          conf=confidence,
-          classes=[0],
-          verbose=False,
-      )
 
-      # Unique tracked persons count
-      if results[0].boxes.id is not None:
-        person_count = len(results[0].boxes.id)
-      else:
-        person_count = 0
+# --- Main Menu ---
+if __name__ == "__main__":
+  print("==========================================")
+  print("   YOLOv8 Person Detection & Counting System")
+  print("==========================================")
+  print("1. Image Detection (Tasveer par check karein)")
+  print("2. Live Camera Detection (Webcam par live check karein)")
 
-      # Draw bounding boxes
-      annotated_frame = results[0].plot()
+  choice = input(
+      "\nApni marzi ka option select karein (1 ya 2): "
+  ).strip()
 
-      # Text display on frame
-      cv2.putText(
-          annotated_frame,
-          f"Persons: {person_count}",
-          (40, 60),
-          cv2.FONT_HERSHEY_SIMPLEX,
-          1.2,
-          (0, 255, 0),
-          3,
-          cv2.LINE_AA,
-      )
-
-      # Convert BGR to RGB for Streamlit
-      annotated_frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-      st_frame.image(
-          annotated_frame_rgb, channels="RGB", use_container_width=True
-      )
-      metric_placeholder.metric(
-          label="Current Active Persons", value=person_count
-      )
-
-      # Write frame to output video
-      out.write(annotated_frame)
-
-      # Update progress bar
-      if total_frames > 0:
-        progress_bar.progress(min(frame_count / total_frames, 1.0))
-
-    cap.release()
-    out.release()
-    st.success("Processing Mukammal Ho Gayi Hai! 🎉")
-
-    # Download Button for Processed Video
-    with open(out_path, "rb") as f:
-      st.download_button(
-          label="📥 Download Processed Video",
-          data=f,
-          file_name="smart_counted_output.mp4",
-          mime="video/mp4",
-      )
+  if choice == "1":
+    img_path = input(
+        "Apni image ka path ya file name dein (misal ke tor par"
+        " person.jpg): "
+    ).strip()
+    detect_image(img_path)
+  elif choice == "2":
+    detect_live_command = detect_live_camera()
+  else:
+    print("❌ Ghalat option select kiya gaya hai! Program band ho raha hai.")
