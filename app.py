@@ -1,129 +1,124 @@
 import cv2
+import numpy as np
+import streamlit as st
 from ultralytics import YOLO
 
-# YOLOv8 ka lightweight model load karein (yolov8n.pt sab se fast hai)
-model = YOLO("yolov8n.pt")
+# Page Configuration
+st.set_page_config(
+    page_title="YOLOv8 Image & Live Camera Detection", page_icon="📸", layout="wide"
+)
+
+# App Title & Styling
+st.title("👥 YOLOv8 Person Detection: Image & Live Camera")
+st.markdown(
+    "Is app ki madad se aap **Images** aur **Live Camera Snapshot** par humans"
+    " detect aur count kar sakte hain."
+)
+
+# Sidebar Settings
+st.sidebar.header("⚙️ Configuration")
+confidence = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.4, 0.05)
+
+# Mode Selection
+app_mode = st.sidebar.selectbox(
+    "Mode Select Karein:",
+    ["🖼️ Image Detection", "🔴 Live Camera / Snapshot Detection"],
+)
 
 
-def detect_image(image_path):
-  # 1. Image read karein
-  image = cv2.imread(image_path)
-  if image is None:
-    print(
-        "❌ Image load nahi ho saki! Barah-e-karam sahi path ya file name dein."
-    )
-    return
+# Load YOLOv8 Model (Cached taake bar bar load na ho)
+@st.cache_resource
+def load_model():
+  return YOLO("yolov8n.pt")
 
-  print("🔄 Image processing ho rahi hai...")
 
-  # 2. YOLOv8 inference run karein (Sirf class 0 yani 'person' ke liye)
-  results = model(image, classes=[0], verbose=False)
+try:
+  model = load_model()
+  st.sidebar.success("YOLOv8 Model loaded successfully! ✅")
+except Exception as e:
+  st.sidebar.error(f"Model load nahi ho saka: {e}")
 
-  # 3. Total persons count nikalein
-  person_count = len(results[0].boxes)
 
-  # 4. Bounding boxes draw karein
-  annotated_image = results[0].plot()
+# --- 1. IMAGE DETECTION MODE ---
+if app_mode == "🖼️ Image Detection":
+  st.subheader("🖼️ Upload Image for Person Detection")
 
-  # 5. Count text display karein
-  cv2.putText(
-      annotated_image,
-      f"Total Persons: {person_count}",
-      (30, 50),
-      cv2.FONT_HERSHEY_SIMPLEX,
-      1,
-      (0, 255, 0),
-      2,
-      cv2.LINE_AA,
+  uploaded_image = st.file_uploader(
+      "Apni image yahan upload karein...", type=["jpg", "jpeg", "png"]
   )
 
-  # 6. Image window show karein
-  print(f"✅ Success! Detected Persons: {person_count}")
-  cv2.imshow("Image Person Detection", annotated_image)
-  print("💡 Window band karne ke liye keyboard ki koi bhi key press karein...")
-  cv2.waitKey(0)
-  cv2.destroyAllWindows()
-
-
-def detect_live_camera():
-  # 1. Webcam open karein (0 default laptop webcam ke liye hai)
-  cap = cv2.VideoCapture(0)
-
-  if not cap.isOpened():
-    print("❌ Webcam open nahi ho saka!")
-    return
-
-  print(
-      "🔴 Live Camera start ho gaya hai! Band karne ke liye keyboard se 'q'"
-      " press karein."
-  )
-
-  while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-      print("❌ Frame read nahi ho saka.")
-      break
-
-    # 2. Live camera par tracking run karein (class 0 = person)
-    results = model.track(
-        frame,
-        persist=True,
-        tracker="bytetrack.yaml",
-        classes=[0],
-        verbose=False,
+  if uploaded_image is not None:
+    # Read image bytes using OpenCV
+    file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, 1.ch) if False else cv2.imdecode(
+        file_bytes, cv2.IMREAD_COLOR
     )
 
-    # Unique tracked persons count
-    if results[0].boxes.id is not None:
-      person_count = len(results[0].boxes.id)
-    else:
-      person_count = 0
+    col1, col2 = st.columns(2)
 
-    # 3. Bounding boxes draw karein
+    with col1:
+      st.subheader("Original Image")
+      st.image(
+          cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
+          channels="RGB",
+          use_container_width=True,
+      )
+
+    with col2:
+      st.subheader("AI Detection Result")
+
+      if st.button("🚀 Detect Persons in Image"):
+        with st.spinner("Processing image..."):
+          # Run YOLO inference (classes=[0] for person)
+          results = model(image, conf=confidence, classes=[0], verbose=False)
+          person_count = len(results[0].boxes)
+
+          # Draw bounding boxes
+          annotated_image = results[0].plot()
+
+          # Display count metric
+          st.metric(label="Total Persons Detected", value=person_count)
+
+          # Show processed image
+          st.image(
+              cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB),
+              channels="RGB",
+              use_container_width=True,
+          )
+          st.success(f"Mukammal! {person_count} persons detect hue hain.")
+
+
+# --- 2. LIVE CAMERA / SNAPSHOT MODE ---
+elif app_mode == "🔴 Live Camera / Snapshot Detection":
+  st.subheader("🔴 Live Camera Snapshot Detection")
+  st.markdown(
+      "Neeche diye gaye camera button par click karke apni live tasveer"
+      " capture karein. AI foran us par detection kar dega!"
+  )
+
+  # Streamlit native camera input (Never hangs on web apps)
+  camera_image = st.camera_input("Apne camera se snapshot lein")
+
+  if camera_image is not None:
+    # Convert camera image to OpenCV format
+    bytes_data = camera_image.getvalue()
+    np_image = np.frombuffer(bytes_data, np.uint8)
+    frame = cv2.imdecode(np_image, cv2.IMREAD_COLOR)
+
+    # Run YOLO inference
+    results = model(frame, conf=confidence, classes=[0], verbose=False)
+    person_count = len(results[0].boxes)
+
+    # Draw bounding boxes
     annotated_frame = results[0].plot()
 
-    # 4. Live count screen par display karein
-    cv2.putText(
-        annotated_frame,
-        f"Live Persons Count: {person_count}",
-        (30, 50),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0, 255, 0),
-        2,
-        cv2.LINE_AA,
+    # Display results
+    st.metric(label="Live Detected Persons", value=person_count)
+    st.image(
+        cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB),
+        channels="RGB",
+        use_container_width=True,
     )
-
-    # 5. Frame show karein
-    cv2.imshow("Live Camera Person Detection & Tracking", annotated_frame)
-
-    # 'q' press karne par live camera band ho jaye ga
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-      break
-
-  cap.release()
-  cv2.destroyAllWindows()
-
-
-# --- Main Menu ---
-if __name__ == "__main__":
-  print("==========================================")
-  print("   YOLOv8 Person Detection & Counting System")
-  print("==========================================")
-  print("1. Image Detection (Tasveer par check karein)")
-  print("2. Live Camera Detection (Webcam par live check karein)")
-
-  choice = input(
-      "\nApni marzi ka option select karein (1 ya 2): "
-  ).strip()
-
-  if choice == "1":
-    img_path = input(
-        "Apni image ka path ya file name dein (misal ke tor par"
-        " person.jpg): "
-    ).strip()
-    detect_image(img_path)
-  elif choice == "2":
-    detect_live_command = detect_live_camera()
-  else:
-    print("❌ Ghalat option select kiya gaya hai! Program band ho raha hai.")
+    st.success(
+        f"Live Camera Detection Successful! Total Persons: {person_count}"
+    )
