@@ -48,11 +48,9 @@ if app_mode == "🖼️ Image Detection":
   )
 
   if uploaded_image is not None:
-    # Read image bytes using OpenCV
+    # Read image bytes using OpenCV (Fixed syntax here)
     file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, 1.ch) if False else cv2.imdecode(
-        file_bytes, cv2.IMREAD_COLOR
-    )
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
     col1, col2 = st.columns(2)
 
@@ -96,7 +94,7 @@ elif app_mode == "🔴 Live Camera / Snapshot Detection":
       " capture karein. AI foran us par detection kar dega!"
   )
 
-  # Streamlit native camera input (Never hangs on web apps)
+  # Streamlit native camera input
   camera_image = st.camera_input("Apne camera se snapshot lein")
 
   if camera_image is not None:
